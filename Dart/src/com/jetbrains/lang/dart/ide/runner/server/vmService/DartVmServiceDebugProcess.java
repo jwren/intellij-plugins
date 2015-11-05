@@ -55,11 +55,14 @@ public class DartVmServiceDebugProcess extends XDebugProcess {
   private final Map<String, LightVirtualFile> myScriptIdToContentMap = new THashMap<String, LightVirtualFile>();
   private final Map<String, TIntIntHashMap> myScriptIdToLinesMap = new THashMap<String, TIntIntHashMap>();
 
+  @Nullable private final String myDASExecutionContextId;
+
   public DartVmServiceDebugProcess(@NotNull final XDebugSession session,
                                    @NotNull final String debuggingHost,
                                    final int observatoryPort,
                                    @Nullable final ExecutionResult executionResult,
-                                   @NotNull final DartUrlResolver dartUrlResolver) {
+                                   @NotNull final DartUrlResolver dartUrlResolver,
+                                   @Nullable final String dasExecutionContextId) {
     super(session);
     myDebuggingHost = debuggingHost;
     myObservatoryPort = observatoryPort;
@@ -85,6 +88,8 @@ public class DartVmServiceDebugProcess extends XDebugProcess {
           stackFrame instanceof DartVmServiceStackFrame ? ((DartVmServiceStackFrame)stackFrame).getIsolateId() : null;
       }
     });
+
+    myDASExecutionContextId = dasExecutionContextId;
 
     scheduleConnect();
   }
@@ -293,6 +298,11 @@ public class DartVmServiceDebugProcess extends XDebugProcess {
         }
       }));
     }
+  }
+
+  @Nullable
+  public String getDASExecutionContextId() {
+    return myDASExecutionContextId;
   }
 
   @NotNull
