@@ -97,6 +97,8 @@ public class DartAnalysisServerService {
   private static final long EXECUTION_MAP_URI_TIMEOUT = TimeUnit.SECONDS.toMillis(1);
   private static final long ANALYSIS_IN_TESTS_TIMEOUT = TimeUnit.SECONDS.toMillis(10);
 
+  private static final long FILE_BUFFER_FLUSH_PERIOD = 400;
+
   private static final List<String> SERVER_SUBSCRIPTIONS = Collections.singletonList(ServerService.STATUS);
   private static final Logger LOG = Logger.getInstance("#com.jetbrains.lang.dart.analyzer.DartAnalysisServerService");
 
@@ -112,6 +114,8 @@ public class DartAnalysisServerService {
   private final Map<String, Long> myFilePathWithOverlaidContentToTimestamp = new THashMap<String, Long>();
   private final List<String> myVisibleFiles = new ArrayList<String>();
   private final Set<Document> myChangedDocuments = new THashSet<Document>();
+  private long myLastBufferFlush = 0;
+  private final Map<String, DocumentBuffer> myDocumentBufferMap = new THashMap<String, DocumentBuffer>();
 
   @NotNull private final Queue<CompletionInfo> myCompletionInfos = new LinkedList<CompletionInfo>();
   @NotNull private final Queue<SearchResultsSet> mySearchResultSets = new LinkedList<SearchResultsSet>();
@@ -254,8 +258,13 @@ public class DartAnalysisServerService {
 
   private DocumentAdapter myDocumentListener = new DocumentAdapter() {
     @Override
-    public void beforeDocumentChange(DocumentEvent e) {
+    public void beforeDocumentChange(@NotNull DocumentEvent e) {
       myServerData.onDocumentChanged(e);
+
+      AnalysisServer server = myServer;
+      if (server == null) {
+        return;
+      }
 
       final VirtualFile file = FileDocumentManager.getInstance().getFile(e.getDocument());
       if (isLocalAnalyzableFile(file)) {
@@ -263,13 +272,31 @@ public class DartAnalysisServerService {
           for (VirtualFile fileInEditor : FileEditorManager.getInstance(project).getSelectedFiles()) {
             if (fileInEditor.equals(file)) {
               synchronized (myLock) {
-                myChangedDocuments.add(e.getDocument());
+                String filePath = FileUtil.toSystemDependentName(file.getPath());
+                DocumentBuffer buffer = myDocumentBufferMap.get(filePath);
+                if(buffer == null) {
+                  myDocumentBufferMap.put(filePath, new DocumentBuffer());
+                  sendAddOverlayContent(e.getDocument());
+                  return;
+                }
+
+                SourceEdit sourceEdit = new SourceEdit(e.getOffset(), e.getOldLength(), e.getNewFragment().toString(), "");
+                buffer.mySourceEdits.add(sourceEdit);
+
+                if(System.currentTimeMillis() - myLastBufferFlush > FILE_BUFFER_FLUSH_PERIOD) {
+                  System.out.println("DartAnalysisServerService.beforeDocumentChange - FILE_BUFFER_FLUSH_PERIOD!" + FILE_BUFFER_FLUSH_PERIOD);
+                  doUpdateFilesContent();
+                }
+
               }
               break;
             }
           }
         }
       }
+
+
+
     }
   };
 
@@ -311,6 +338,28 @@ public class DartAnalysisServerService {
         }
       }
     }
+  }
+
+  private class DocumentBuffer {
+
+    private List<SourceEdit> mySourceEdits;
+
+    public DocumentBuffer() {
+      mySourceEdits = new ArrayList<>();
+    }
+
+    public List<SourceEdit> getSourceEdits() {
+      return mySourceEdits;
+    }
+
+    public boolean isEmpty() {
+      return mySourceEdits.isEmpty();
+    }
+
+    public void clear() {
+      mySourceEdits.clear();
+    }
+
   }
 
   public static class FormatResult {
@@ -425,6 +474,17 @@ public class DartAnalysisServerService {
 
           if (isLocalAnalyzableFile(file)) {
             updateVisibleFiles();
+
+            // Create an entry in the document buffer map and send over AddOverlay
+            String filePath = FileUtil.toSystemDependentName(file.getPath());
+            if(!myDocumentBufferMap.containsKey(filePath)) {
+              Document document = FileDocumentManager.getInstance().getDocument(file);
+              if(document != null) {
+                myDocumentBufferMap.put(filePath, new DocumentBuffer());
+                System.out.println("file open, creating entry in map: " + filePath);
+                sendAddOverlayContent(document);
+              }
+            }
           }
         }
 
@@ -442,11 +502,19 @@ public class DartAnalysisServerService {
             for (Project project : myRootsHandler.getTrackedProjects()) {
               if (FileEditorManager.getInstance(project).getSelectedEditor(file) == null) {
                 myServerData.onFileClosed(file);
+
+                // update files and then remove from the buffer map
+                updateFilesContent();
+                String filePath = FileUtil.toSystemDependentName(file.getPath());
+                if(myDocumentBufferMap.containsKey(filePath)) {
+                  myDocumentBufferMap.remove(filePath);
+                  System.out.println("file close, removing: " + filePath);
+                }
                 break;
               }
             }
-
             updateVisibleFiles();
+
           }
         }
       });
@@ -536,7 +604,7 @@ public class DartAnalysisServerService {
 
   public void updateFilesContent() {
     if (myServer != null) {
-      ApplicationManager.getApplication().runReadAction(() -> doUpdateFilesContent());
+      doUpdateFilesContent();
     }
   }
 
@@ -548,54 +616,56 @@ public class DartAnalysisServerService {
       return;
     }
 
+      Iterator it = myDocumentBufferMap.entrySet().iterator();
+      while (it.hasNext()) {
+        Map.Entry pair = (Map.Entry)it.next();
+        DocumentBuffer buffer = (DocumentBuffer) pair.getValue();
+        //System.out.println("updating" + pair.getKey() + ", size of sourceedits = " + buffer.getSourceEdits().size());
+        if (!buffer.isEmpty()) {
+          buffer.getSourceEdits();
+          sendChangeContentOverlay((String)pair.getKey(), buffer.getSourceEdits());
+          buffer.clear();
+        }
+      }
+      myLastBufferFlush = System.currentTimeMillis();
+
+
+  }
+
+  private void sendAddOverlayContent(@NotNull Document document) {
+    AnalysisServer server = myServer;
+    if (server == null) {
+      return;
+    }
+    final Map<String, Object> filesToUpdate = new THashMap<String, Object>();
+    final FileDocumentManager fileDocumentManager = FileDocumentManager.getInstance();
+    ApplicationManager.getApplication().assertReadAccessAllowed();
+    synchronized (myLock) {
+      final VirtualFile file = fileDocumentManager.getFile(document);
+      if (isLocalAnalyzableFile(file)) {
+        filesToUpdate.put(FileUtil.toSystemDependentName(file.getPath()), new AddContentOverlay(document.getText()));
+      }
+    }
+    if (!filesToUpdate.isEmpty()) {
+      server.analysis_updateContent(filesToUpdate, new UpdateContentConsumer() {
+        @Override
+        public void onResponse() {
+          myServerData.onFilesContentUpdated();
+        }
+      });
+    }
+  }
+
+  private void sendChangeContentOverlay(@NotNull String filePath, @NotNull List<SourceEdit> sourceEdits) {
+    AnalysisServer server = myServer;
+    if (server == null) {
+      return;
+    }
     final Map<String, Object> filesToUpdate = new THashMap<String, Object>();
     ApplicationManager.getApplication().assertReadAccessAllowed();
     synchronized (myLock) {
-      final Set<String> oldTrackedFiles = new THashSet<String>(myFilePathWithOverlaidContentToTimestamp.keySet());
-
-      final FileDocumentManager fileDocumentManager = FileDocumentManager.getInstance();
-
-      // some documents in myChangedDocuments may be updated by external change, suxh as switch branch, that's why we track them,
-      // getUnsavedDocuments() is not enough, we must make sure that overlaid content is sent for for myChangedDocuments as well (to trigger DAS notifications)
-      final Set<Document> documents = new THashSet<Document>(myChangedDocuments);
-      myChangedDocuments.clear();
-      ContainerUtil.addAll(documents, fileDocumentManager.getUnsavedDocuments());
-
-      for (Document document : documents) {
-        final VirtualFile file = fileDocumentManager.getFile(document);
-        if (isLocalAnalyzableFile(file)) {
-          oldTrackedFiles.remove(file.getPath());
-
-          final Long oldTimestamp = myFilePathWithOverlaidContentToTimestamp.get(file.getPath());
-          if (oldTimestamp == null || document.getModificationStamp() != oldTimestamp) {
-            filesToUpdate.put(FileUtil.toSystemDependentName(file.getPath()), new AddContentOverlay(document.getText()));
-            myFilePathWithOverlaidContentToTimestamp.put(file.getPath(), document.getModificationStamp());
-          }
-        }
-      }
-
-      // oldTrackedFiles at this point contains only those files that are not in FileDocumentManager.getUnsavedDocuments() any more
-      for (String oldPath : oldTrackedFiles) {
-        final Long removed = myFilePathWithOverlaidContentToTimestamp.remove(oldPath);
-        LOG.assertTrue(removed != null, oldPath);
-        filesToUpdate.put(FileUtil.toSystemDependentName(oldPath), new RemoveContentOverlay());
-      }
-
-      if (LOG.isDebugEnabled()) {
-        final Set<String> overlaid = new THashSet<String>(filesToUpdate.keySet());
-        for (String removeOverlaid : oldTrackedFiles) {
-          overlaid.remove(FileUtil.toSystemDependentName(removeOverlaid));
-        }
-        if (!overlaid.isEmpty()) {
-          LOG.debug("Sending overlaid content: " + StringUtil.join(overlaid, ",\n"));
-        }
-
-        if (!oldTrackedFiles.isEmpty()) {
-          LOG.debug("Removing overlaid content: " + StringUtil.join(oldTrackedFiles, ",\n"));
-        }
-      }
+      filesToUpdate.put(FileUtil.toSystemDependentName(filePath), new ChangeContentOverlay(sourceEdits));
     }
-
     if (!filesToUpdate.isEmpty()) {
       server.analysis_updateContent(filesToUpdate, new UpdateContentConsumer() {
         @Override
@@ -1229,7 +1299,9 @@ public class DartAnalysisServerService {
       final DebugPrintStream debugStream = new DebugPrintStream() {
         @Override
         public void println(String str) {
-          //System.out.println("debugStream: " + str);
+          //if(!str.contains("\"analysis.errors\"")) {
+          //  System.out.println("debugStream: " + str);
+          //}
         }
       };
 
