@@ -59,8 +59,7 @@ public class DartProblemsView implements PersistentStateComponent<DartProblemsVi
   private static final int TABLE_REFRESH_PERIOD = 300;
 
   private final Project myProject;
-  private final DartProblemsFilter myFilter;
-  private DartProblemsViewPanel myPanel;
+  private final List<DartProblemsViewPanel> myPanels = new ArrayList<>();
 
   private final Object myLock = new Object(); // use this lock to access myScheduledFilePathToErrors and myAlarm
   private final Map<String, List<AnalysisError>> myScheduledFilePathToErrors = new THashMap<>();
@@ -91,13 +90,14 @@ public class DartProblemsView implements PersistentStateComponent<DartProblemsVi
         myScheduledFilePathToErrors.clear();
       }
 
-      myPanel.setErrors(filePathToErrors);
+      for (DartProblemsViewPanel panel : myPanels) {
+        panel.setErrors(filePathToErrors);
+      }
     }
   };
 
   public DartProblemsView(@NotNull final Project project, @NotNull final ToolWindowManager toolWindowManager) {
     myProject = project;
-    myFilter = new DartProblemsFilter(project);
     myAlarm = new Alarm(Alarm.ThreadToUse.SWING_THREAD, project);
     Disposer.register(project, myAlarm);
 
@@ -105,15 +105,38 @@ public class DartProblemsView implements PersistentStateComponent<DartProblemsVi
       if (project.isDisposed()) {
         return;
       }
+      myPanels.add(new DartProblemsViewPanel(project, new DartProblemsFilter(project, DartProblemsFilter.FileFilterMode.All), mySettings));
+      myPanels.add(
+        new DartProblemsViewPanel(project, new DartProblemsFilter(project, DartProblemsFilter.FileFilterMode.ContentRoot), mySettings));
+      myPanels.add(
+        new DartProblemsViewPanel(project, new DartProblemsFilter(project, DartProblemsFilter.FileFilterMode.DartPackage), mySettings));
+      myPanels
+        .add(new DartProblemsViewPanel(project, new DartProblemsFilter(project, DartProblemsFilter.FileFilterMode.Directory), mySettings));
+      myPanels.add(new DartProblemsViewPanel(project, new DartProblemsFilter(project, DartProblemsFilter.FileFilterMode.File), mySettings));
 
-      myPanel = new DartProblemsViewPanel(project, myFilter, mySettings);
+      //myPanel = new DartProblemsViewPanel(project, myFilter, mySettings);
 
       myToolWindow = toolWindowManager.registerToolWindow(TOOLWINDOW_ID, false, ToolWindowAnchor.BOTTOM, project, true);
       myCurrentIcon = DartIcons.Dart_13;
       updateIcon();
 
-      final Content content = ContentFactory.SERVICE.getInstance().createContent(myPanel, "", false);
-      myToolWindow.getContentManager().addContent(content);
+      for (DartProblemsViewPanel panel : myPanels) {
+        final Content content = ContentFactory.SERVICE.getInstance().createContent(panel, panel.getDisplayName(), false);
+        myToolWindow.getContentManager().addContent(content);
+
+        panel.setToolWindowUpdater(new ToolWindowUpdater() {
+          @Override
+          public void setIcon(@NotNull Icon icon) {
+            myCurrentIcon = icon;
+            updateIcon();
+          }
+
+          @Override
+          public void setHeaderText(@NotNull String headerText) {
+            content.setDisplayName(headerText);
+          }
+        });
+      }
 
       ToolWindowEx toolWindowEx = (ToolWindowEx)myToolWindow;
       toolWindowEx.setTitleActions(new AnalysisServerStatusAction());
@@ -121,18 +144,6 @@ public class DartProblemsView implements PersistentStateComponent<DartProblemsVi
       gearActions.add(new AnalysisServerDiagnosticsAction());
       toolWindowEx.setAdditionalGearActions(new DefaultActionGroup(gearActions));
 
-      myPanel.setToolWindowUpdater(new ToolWindowUpdater() {
-        @Override
-        public void setIcon(@NotNull Icon icon) {
-          myCurrentIcon = icon;
-          updateIcon();
-        }
-
-        @Override
-        public void setHeaderText(@NotNull String headerText) {
-          content.setDisplayName(headerText);
-        }
-      });
 
       if (PropertiesComponent.getInstance(project).getBoolean("dart.analysis.tool.window.force.activate", true)) {
         PropertiesComponent.getInstance(project).setValue("dart.analysis.tool.window.force.activate", false, true);
@@ -182,15 +193,17 @@ public class DartProblemsView implements PersistentStateComponent<DartProblemsVi
     mySettings = state;
 
     // Update children.
-    if (myPanel != null) {
-      myPanel.updateFromSettings(mySettings);
+    for(DartProblemsViewPanel panel : myPanels) {
+      if (panel != null) {
+        panel.updateFromSettings(mySettings);
+      }
     }
   }
 
   public void setCurrentFile(@Nullable final VirtualFile file) {
-    if (myFilter.setCurrentFile(file) && myFilter.getFileFilterMode() != DartProblemsFilter.FileFilterMode.All) {
-      if (myPanel != null) {
-        myPanel.fireGroupingOrFilterChanged();
+    for(DartProblemsViewPanel panel : myPanels) {
+      if (panel != null && panel.myFilter.setCurrentFile(file) && panel.myFilter.getFileFilterMode() != DartProblemsFilter.FileFilterMode.All) {
+          panel.fireGroupingOrFilterChanged();
       }
     }
   }
@@ -215,7 +228,9 @@ public class DartProblemsView implements PersistentStateComponent<DartProblemsVi
       myScheduledFilePathToErrors.clear();
     }
 
-    myPanel.clearAll();
+    for(DartProblemsViewPanel panel : myPanels) {
+      panel.clearAll();
+    }
   }
 
   interface ToolWindowUpdater {

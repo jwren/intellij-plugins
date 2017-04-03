@@ -20,14 +20,13 @@ public class DartProblemsFilter extends RowFilter<DartProblemsTableModel, Intege
   private static final boolean SHOW_ERRORS_DEFAULT = true;
   private static final boolean SHOW_WARNINGS_DEFAULT = true;
   private static final boolean SHOW_HINTS_DEFAULT = true;
-  private static final FileFilterMode FILE_FILTER_MODE_DEFAULT = FileFilterMode.All;
 
   @NotNull private final Project myProject;
 
   private boolean myShowErrors;
   private boolean myShowWarnings;
   private boolean myShowHints;
-  private FileFilterMode myFileFilterMode;
+  private final FileFilterMode myFileFilterMode;
 
   @Nullable private VirtualFile myCurrentFile;
   private boolean myDartPackageRootUpToDate = false;
@@ -35,8 +34,9 @@ public class DartProblemsFilter extends RowFilter<DartProblemsTableModel, Intege
   private boolean myContentRootUpToDate = false;
   @Nullable private VirtualFile myCurrentContentRoot;
 
-  public DartProblemsFilter(@NotNull final Project project) {
+  public DartProblemsFilter(@NotNull final Project project, @NotNull final FileFilterMode fileFilterMode) {
     myProject = project;
+    myFileFilterMode = fileFilterMode;
     resetAllFilters();
   }
 
@@ -44,7 +44,6 @@ public class DartProblemsFilter extends RowFilter<DartProblemsTableModel, Intege
     myShowErrors = SHOW_ERRORS_DEFAULT;
     myShowWarnings = SHOW_WARNINGS_DEFAULT;
     myShowHints = SHOW_HINTS_DEFAULT;
-    myFileFilterMode = FILE_FILTER_MODE_DEFAULT;
 
     assert (!areFiltersApplied());
   }
@@ -53,7 +52,6 @@ public class DartProblemsFilter extends RowFilter<DartProblemsTableModel, Intege
     myShowErrors = form.isShowErrors();
     myShowWarnings = form.isShowWarnings();
     myShowHints = form.isShowHints();
-    myFileFilterMode = form.getFileFilterMode();
   }
 
   @SuppressWarnings("PointlessBooleanExpression")
@@ -61,7 +59,6 @@ public class DartProblemsFilter extends RowFilter<DartProblemsTableModel, Intege
     if (myShowErrors != SHOW_ERRORS_DEFAULT) return true;
     if (myShowWarnings != SHOW_WARNINGS_DEFAULT) return true;
     if (myShowHints != SHOW_HINTS_DEFAULT) return true;
-    if (myFileFilterMode != FILE_FILTER_MODE_DEFAULT) return true;
 
     return false;
   }

@@ -74,7 +74,7 @@ public class DartProblemsViewPanel extends SimpleToolWindowPanel implements Data
   @NotNull private final TableView<DartProblem> myTable;
 
   @NotNull private DartProblemsViewSettings mySettings;
-  @NotNull private final DartProblemsFilter myFilter;
+  @NotNull public final DartProblemsFilter myFilter;
 
   private DartProblemsView.ToolWindowUpdater myToolWindowUpdater;
 
@@ -91,6 +91,23 @@ public class DartProblemsViewPanel extends SimpleToolWindowPanel implements Data
     setContent(createCenterPanel());
 
     DartAnalysisServerService.getInstance(project).maxMillisToWaitForServerResponse = DEFAULT_SERVER_WAIT_MILLIS;
+  }
+
+  @NotNull
+  public String getDisplayName() {
+    DartProblemsFilter.FileFilterMode mode = myFilter.getFileFilterMode();
+    if(mode == DartProblemsFilter.FileFilterMode.All) {
+      return "All";
+    } else if(mode == DartProblemsFilter.FileFilterMode.ContentRoot) {
+      return "Content Root";
+    } else if(mode == DartProblemsFilter.FileFilterMode.DartPackage) {
+      return "Dart Package";
+    }
+    else if(mode == DartProblemsFilter.FileFilterMode.Directory) {
+      return "Directory";
+    } else {
+      return "File";
+    }
   }
 
   @NotNull
@@ -178,7 +195,7 @@ public class DartProblemsViewPanel extends SimpleToolWindowPanel implements Data
   private void updateStatusDescription() {
     if (myToolWindowUpdater != null) {
       final DartProblemsTableModel model = (DartProblemsTableModel)myTable.getModel();
-      myToolWindowUpdater.setHeaderText(model.getStatusText());
+      myToolWindowUpdater.setHeaderText(getDisplayName() + ", " + model.getStatusText());
       myToolWindowUpdater.setIcon(model.hasErrors() ? DART_ERRORS_ICON : model.hasWarnings() ? DART_WARNINGS_ICON : DartIcons.Dart_13);
     }
   }
