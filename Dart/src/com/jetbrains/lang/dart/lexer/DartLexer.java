@@ -1,6 +1,7 @@
 package com.jetbrains.lang.dart.lexer;
 
 import com.intellij.lexer.FlexAdapter;
+import com.intellij.lexer.LexerPosition;
 import com.intellij.lexer.MergeFunction;
 import com.intellij.lexer.MergingLexerAdapterBase;
 import com.intellij.psi.tree.IElementType;
@@ -54,6 +55,23 @@ public class DartLexer extends MergingLexerAdapterBase {
 
       return firstTokenType == MULTI_LINE_DOC_COMMENT_START ? MULTI_LINE_DOC_COMMENT
                                                             : MULTI_LINE_COMMENT;
+    }
+    else if (firstTokenType == SINGLE_LINE_DOC_COMMENT) {
+      LexerPosition endPosition = originalLexer.getCurrentPosition();
+      while (true) {
+        if (originalLexer.getTokenType() == WHITE_SPACE) {
+          originalLexer.advance();
+          if (originalLexer.getTokenType() == SINGLE_LINE_DOC_COMMENT) {
+            originalLexer.advance();
+            endPosition = originalLexer.getCurrentPosition();
+          }
+          else {
+            originalLexer.restore(endPosition);
+            break;
+          }
+        }
+      }
+      return MULTI_LINE_DOC_COMMENT;
     }
 
     return firstTokenType;

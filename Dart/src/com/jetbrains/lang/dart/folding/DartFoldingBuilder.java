@@ -65,7 +65,14 @@ public class DartFoldingBuilder extends CustomFoldingBuilder implements DumbAwar
     if (psiElement instanceof DartFile) return "/.../";                              // 1.   File header
     if (psiElement instanceof DartImportOrExportStatement) return "...";             // 2.   Import and export statements
     if (psiElement instanceof DartPartStatement) return "...";                       // 3.   Part statements
-    if (elementType == DartTokenTypesSets.MULTI_LINE_DOC_COMMENT) return "/**...*/"; // 4.1. Multiline doc comments
+    if (elementType == DartTokenTypesSets.MULTI_LINE_DOC_COMMENT) {
+      if (node.getFirstChildNode().getElementType() == DartTokenTypesSets.MULTI_LINE_DOC_COMMENT_START) {
+        return "/**...*/"; // 4.1. Multiline doc comments, of form /**
+      }
+      else {
+        return "///..."; // 4.1. Multiline doc comments, of form ///
+      }
+    }
     if (elementType == DartTokenTypesSets.MULTI_LINE_COMMENT) return "/*...*/";      // 4.2. Multiline comments
     if (elementType == DartTokenTypesSets.SINGLE_LINE_DOC_COMMENT) return "///...";  // 4.3. Consequent single line doc comments
     if (elementType == DartTokenTypesSets.SINGLE_LINE_COMMENT) return "//...";       // 4.4. Consequent single line comments

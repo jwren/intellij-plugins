@@ -1,6 +1,6 @@
 library foo;
 // single
-/// single
+<fold text='///...' expand='true'>/// single</fold>
 <fold text='/*...*/' expand='true'>/*
 multiline
  */</fold>
@@ -24,7 +24,7 @@ class A<fold text='{...}' expand='true'>{
       <fold text='///...' expand='true'>/// doc 1
       /// doc 2</fold>
       // single
-      /// single
+      <fold text='///...' expand='true'>/// single</fold>
       <fold text='/**...*/' expand='true'>/**
        * multiline doc
        */</fold>
