@@ -613,7 +613,6 @@ public final class DartServerData {
     private final String myFile;
     private final int myOriginalOffset;
     private final String myKind;
-
     private int myConvertedOffset = -1;
 
     private DartNavigationTarget(@NotNull final NavigationTarget target) {

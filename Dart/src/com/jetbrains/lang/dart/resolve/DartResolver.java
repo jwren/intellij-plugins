@@ -1,24 +1,29 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.lang.dart.resolve;
 
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiManager;
-import com.intellij.psi.PsiNameIdentifierOwner;
+import com.intellij.psi.*;
+import com.intellij.psi.impl.PsiFileFactoryImpl;
 import com.intellij.psi.impl.source.resolve.ResolveCache;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.Processor;
 import com.intellij.util.SmartList;
+import com.jetbrains.lang.dart.DartFileType;
+import com.jetbrains.lang.dart.DartLanguage;
 import com.jetbrains.lang.dart.analyzer.DartAnalysisServerService;
 import com.jetbrains.lang.dart.analyzer.DartServerData;
 import com.jetbrains.lang.dart.analyzer.DartServerData.DartNavigationRegion;
 import com.jetbrains.lang.dart.analyzer.DartServerData.DartNavigationTarget;
 import com.jetbrains.lang.dart.psi.*;
+import com.jetbrains.lang.dart.util.DartElementGenerator;
 import com.jetbrains.lang.dart.util.DartResolveUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -104,6 +109,42 @@ public class DartResolver implements ResolveCache.AbstractResolver<DartReference
   @Nullable
   public static PsiElement getElementForNavigationTarget(Project project, DartNavigationTarget target) {
     String targetPath = target.getFile();
+    if(target.getFile().endsWith(".macro.dart")) {
+
+      // TODO this weird mapping from "/.../file.macro.dart" to "dart-macro+file:///.../file.dart" is TEMPORARY,
+      //  with time, as https://dart-review.googlesource.com/c/sdk/+/347023, lands the provided path from the
+      //  Dart Analysis Server will provide and expect things in the format of "dart-macro+file:///.../file.dart"
+      System.out.println("target file path = " + target.getFile());
+      String macroURI = target.getFile();
+      macroURI = macroURI.trim();
+      macroURI = macroURI.substring(0,macroURI.length() - (".macro.dart".length())) + ".dart";
+      macroURI = "dart-macro+file://" + macroURI;
+      System.out.println("macroURI = " + macroURI);
+      String contents = DartAnalysisServerService.getInstance(project).lspMessage_dart_textDocumentContent(macroURI);
+      System.out.println("contents = " + contents);
+
+      final PsiFileFactory factory = PsiFileFactory.getInstance(project);
+      final String name = targetPath + " -- any format we want";//"dummy." + DartFileType.INSTANCE.getDefaultExtension();
+      final LightVirtualFile lightVirtualFile = new LightVirtualFile(name, DartFileType.INSTANCE, contents);
+      lightVirtualFile.setWritable(false);
+      final PsiFile psiFile = ((PsiFileFactoryImpl)factory).trySetupPsiForFile(lightVirtualFile, DartLanguage.INSTANCE, false, true);
+      assert psiFile != null;
+
+      int targetOffset = target.getOffset(project, lightVirtualFile);
+      PsiElement elementAtOffset = psiFile.findElementAt(targetOffset);
+      PsiNameIdentifierOwner nameOwner =
+        PsiTreeUtil.getNonStrictParentOfType(elementAtOffset, DartComponentName.class, DartLibraryNameElement.class);
+
+      // TODO this should not be here, but without it, the provided PSI does not open on the click action
+      ApplicationManager.getApplication().invokeLater(() -> {
+        FileEditorManager manager = FileEditorManager.getInstance(project);
+        manager.openFile(lightVirtualFile, true, true);
+      });
+      return nameOwner != null ? nameOwner : elementAtOffset;
+    }
+
+
+
     PsiFile file = findPsiFile(project, targetPath);
     if (file != null) {
       int targetOffset = target.getOffset(project, file.getVirtualFile());

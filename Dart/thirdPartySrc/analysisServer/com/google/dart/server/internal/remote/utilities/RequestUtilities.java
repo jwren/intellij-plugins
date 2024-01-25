@@ -1048,9 +1048,10 @@ public class RequestUtilities {
    * }
    * </pre>
    */
-  public static JsonObject generateClientCapabilities(String idValue, List<String> requests) {
+  public static JsonObject generateClientCapabilities(String idValue, List<String> requests, boolean supportsUris) {
     JsonObject params = new JsonObject();
     params.add(REQUESTS, buildJsonElement(requests));
+    params.addProperty("supportsUris", supportsUris);
     return buildJsonObjectRequest(idValue, METHOD_SERVER_SET_CAPABILITIES, params);
   }
 
@@ -1197,6 +1198,47 @@ public class RequestUtilities {
       return child.getAsString();
     }
     return null;
+  }
+
+  //
+  // LSP over Legacy DAS (Dart Analysis Server) protocol below
+  //
+
+  public static final String LSP_DART_TEXT_DOCUMENT_CONTENT = "dart/textDocumentContent";
+
+  private static final String LSP_HANDLE = "lsp.handle";
+
+  public static final String LSP_JSONRPC = "jsonrpc";
+
+  public static final String LSP_JSONROC_VERSION = "2.0";
+
+  public static final String LSP_MESSAGE = "lspMessage";
+
+  /**
+   * Generate and return a LSP over legacy request.
+   *
+   * Example:
+   * {"id":"2","method":"lsp.handle","params":
+   *   {"lspMessage":
+   *     {"id":0,"jsonrpc":"2.0","method":"textDocument/hover","params":
+   *       {"position":{"character":7,"line":1},
+   *        "textDocument":{"uri":"file://path/project/lib/test.dart"}}}}}
+   */
+  private static JsonObject generateLSPMessage(String idValue, String lspMethod, JsonObject lspParams) {
+    JsonObject lspMessageParams = new JsonObject();
+    lspMessageParams.addProperty(ID, idValue);
+    lspMessageParams.addProperty(LSP_JSONRPC, LSP_JSONROC_VERSION);
+    lspMessageParams.addProperty(METHOD, lspMethod);
+    lspMessageParams.add(PARAMS, lspParams);
+    JsonObject lspMessage = new JsonObject();
+    lspMessage.add(LSP_MESSAGE, lspMessageParams);
+    return buildJsonObjectRequest(idValue, LSP_HANDLE, lspMessage);
+  }
+
+  public static JsonObject generateLSPMessage_dart_textDocumentContent(String idValue, String uri) {
+    JsonObject lspParams = new JsonObject();
+    lspParams.addProperty("uri", uri);
+    return generateLSPMessage(idValue, LSP_DART_TEXT_DOCUMENT_CONTENT, lspParams);
   }
 
   private RequestUtilities() {

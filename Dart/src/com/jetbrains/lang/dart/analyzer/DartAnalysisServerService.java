@@ -117,6 +117,8 @@ public final class DartAnalysisServerService implements Disposable {
   private static final long EXECUTION_CREATE_CONTEXT_TIMEOUT = TimeUnit.SECONDS.toMillis(1);
   private static final long EXECUTION_MAP_URI_TIMEOUT = TimeUnit.SECONDS.toMillis(1);
   private static final long ANALYSIS_IN_TESTS_TIMEOUT = TimeUnit.SECONDS.toMillis(10);
+//lspMessage_dart_textDocumentContent
+  public static final long LSP_MESSAGE_TIMEOUT = TimeUnit.SECONDS.toMillis(100);
   private static final long TESTS_TIMEOUT_COEFF = 10;
 
   private static final Logger LOG = Logger.getInstance(DartAnalysisServerService.class);
@@ -2042,6 +2044,41 @@ public final class DartAnalysisServerService implements Disposable {
     return resultRef.get();
   }
 
+  //
+  //
+  //
+  @Nullable
+  public String lspMessage_dart_textDocumentContent(@NotNull final String uri) {
+    final RemoteAnalysisServerImpl server = myServer;
+    if (server == null) {
+      return null;
+    }
+
+    final Ref<String> resultRef = new Ref<>();
+    final CountDownLatch latch = new CountDownLatch(1);
+    server.lspMessage_dart_textDocumentContent(uri, new LSPDartTextDocumentContentConsumer() {
+      @Override
+      public void computedDocumentContents(String contents) {
+        resultRef.set(contents);
+        latch.countDown();
+      }
+
+      @Override
+      public void onError(final RequestError error) {
+        logError("lspMessage_dart_textDocumentContent()", uri, error);
+        latch.countDown();
+      }
+    });
+
+    awaitForLatchCheckingCanceled(server, latch, LSP_MESSAGE_TIMEOUT);
+
+    if (latch.getCount() > 0) {
+      logTookTooLongMessage("lspMessage_dart_textDocumentContent", LSP_MESSAGE_TIMEOUT, uri);
+    }
+    return resultRef.get();
+  }
+
+
   private void startServer(@NotNull final DartSdk sdk) {
     if (DartPubActionBase.isInProgress()) return; // DartPubActionBase will start the server itself when finished
 
@@ -2180,7 +2217,7 @@ public final class DartAnalysisServerService implements Disposable {
         //myDoEnableMLBasedCodeCompletion = doEnableMLBasedCodeCompletion;
 
         startedServer.analysis_updateOptions(new AnalysisOptions(true, true, true, true, false, true, false));
-        startedServer.server_setClientCapabilities(List.of("openUrlRequest", "showMessageRequest"));
+        startedServer.server_setClientCapabilities(List.of("openUrlRequest", "showMessageRequest"), true);
 
         myServer = startedServer;
 

@@ -1036,8 +1036,15 @@ public interface AnalysisServer {
    *        requests that can be specified:
    *        - openUrlRequest
    *        - showMessageRequest
+   * @param supportsUris True if the client supports the server sending URIs in place of file paths.
+   *        In this mode, the server can use URIs in all protocol fields that usually contain file
+   *        paths. The client should try to parse URIs and assume file paths only if a URI cannot be
+   *        parsed. Returned URIs may use custom (non-file) schemes. The client can fetch the file
+   *        contents for these files (and receive modification events) through the LSP protocol (see
+   *        the "lsp" domain). LSP notifications are automatically enabled when the client sets this
+   *        capability.
    */
-  public void server_setClientCapabilities(List<String> requests);
+  public void server_setClientCapabilities(List<String> requests, boolean supportsUris);
 
   /**
    * {@code server.setSubscriptions}
